@@ -202,6 +202,7 @@
   </div>
 
   <div class="tab-panel" data-panel="productos">
+    <button class="add-btn" id="addProductoBtnTop" style="margin-bottom:12px;">+ Agregar producto</button>
     <div id="productosWrap"></div>
     <button class="add-btn" id="addProductoBtn">+ Agregar producto</button>
   </div>
@@ -823,11 +824,13 @@ function renderProductos() {
     });
   });
 }
-document.getElementById("addProductoBtn").addEventListener("click", () => {
+function addProducto() {
   state.productos.push({ id: uid(), nombre: "Nuevo producto", categoria: "Otros", descripcion: "", fotoUrl: "", proveedor: "", codigoCompra: "", fechaInversion: "",
     costo: 0, costoExtra: 0, modo: "monto", gananciaDeseada: 0, margenDeseado: 30, ventasEstimadas: 0, stockInicial: 0 });
   saveState(); renderProductos(); renderSeguimiento();
-});
+}
+document.getElementById("addProductoBtn").addEventListener("click", addProducto);
+document.getElementById("addProductoBtnTop").addEventListener("click", addProducto);
 
 // ---------- Seguimiento mensual ----------
 function renderSeguimiento() {
