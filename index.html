@@ -192,6 +192,13 @@
     <button class="add-btn" id="addProductoBtn">+ Agregar producto</button>
   </div>
 
+  <div class="tab-panel" data-panel="catalogo">
+    <div class="card">
+      <p class="hint-top">Vista rápida de todos los productos con su foto, para identificarlos de un vistazo.</p>
+      <div id="catalogoWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;"></div>
+    </div>
+  </div>
+
   <div class="tab-panel" data-panel="seguimiento">
     <div class="card">
       <p class="hint-top">Cargá una fila por producto y por mes con las ventas reales. Se compara contra lo estimado y resta del stock actual.</p>
@@ -229,13 +236,22 @@ const fmt = (n) => {
 };
 const numOr0 = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 
+function toDirectImageUrl(url) {
+  if (!url) return "";
+  const m = url.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+  if (m) return `https://drive.google.com/uc?export=view&id=${m[1]}`;
+  const m2 = url.match(/[?&]id=([^&]+)/);
+  if (m2 && url.includes("drive.google.com")) return `https://drive.google.com/uc?export=view&id=${m2[1]}`;
+  return url;
+}
+
 const defaultState = {
   sueldoPropio: 0,
   inversionInicial: 0,
   categoriasPersonalizadas: [],
   gastosFijos: [],
   productos: [
-    { id: uid(), nombre: "Collar", categoria: "Collares", proveedor: "", codigoCompra: "", fechaInversion: "",
+    { id: uid(), nombre: "Collar", categoria: "Collares", descripcion: "", fotoUrl: "", proveedor: "", codigoCompra: "", fechaInversion: "",
       costo: 0, costoExtra: 0, modo: "margen", gananciaDeseada: 0, margenDeseado: 30, ventasEstimadas: 0, stockInicial: 0 }
   ],
   seguimiento: []
@@ -354,6 +370,7 @@ document.getElementById("showCodeBtn").addEventListener("click", () => {
 const TABS = [
   { id: "gastos", label: "Gastos y sueldo" },
   { id: "productos", label: "Productos" },
+  { id: "catalogo", label: "Catálogo" },
   { id: "seguimiento", label: "Seguimiento mensual" },
   { id: "resumenMensual", label: "Resumen mensual" },
   { id: "resumen", label: "Resumen" },
@@ -402,11 +419,37 @@ function getTotales() {
 }
 
 // ---------- Render principal ----------
+function renderCatalogo() {
+  const wrap = document.getElementById("catalogoWrap");
+  const { productosCalc } = getTotales();
+  if (productosCalc.length === 0) {
+    wrap.innerHTML = `<p style="font-size:13px;color:var(--stone-500);">Todavía no cargaste productos.</p>`;
+    return;
+  }
+  wrap.innerHTML = productosCalc.map(p => {
+    const img = toDirectImageUrl(p.fotoUrl);
+    return `
+      <div style="border:1px solid var(--stone-200);border-radius:12px;overflow:hidden;background:white;">
+        ${img
+          ? `<img src="${img}" onerror="this.replaceWith(Object.assign(document.createElement('div'), {style:'height:110px;display:flex;align-items:center;justify-content:center;background:var(--stone-50);color:var(--stone-400);font-size:11px;',innerText:'sin foto'}))" style="width:100%;height:110px;object-fit:cover;display:block;" />`
+          : `<div style="height:110px;display:flex;align-items:center;justify-content:center;background:var(--stone-50);color:var(--stone-400);font-size:11px;">sin foto</div>`}
+        <div style="padding:8px 10px;">
+          <div style="font-size:12px;font-weight:700;color:var(--stone-900);">${p.nombre}</div>
+          <div style="font-size:11px;color:var(--stone-400);margin-bottom:2px;">${p.categoria}</div>
+          ${p.descripcion ? `<div style="font-size:11px;color:var(--stone-500);margin-bottom:4px;">${p.descripcion}</div>` : ""}
+          <div style="font-size:12px;font-weight:700;color:var(--rose);">${fmt(p.precioFinal)}</div>
+          <div style="font-size:11px;color:${p.stockActual <= 5 ? "var(--red)" : "var(--stone-500)"};">${p.stockActual} en stock</div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
 function render() {
   document.getElementById("sueldoPropio").value = state.sueldoPropio;
   document.getElementById("inversionInicial").value = state.inversionInicial;
   renderGastos();
   renderProductos();
+  renderCatalogo();
   renderSeguimiento();
   renderResumenMensual();
   renderResumen();
@@ -464,13 +507,26 @@ function renderProductos() {
     const todasCategorias = [...CATEGORIAS_BASE, ...state.categoriasPersonalizadas.filter(c => !CATEGORIAS_BASE.includes(c))];
     return `
     <div class="producto-card" data-id="${p.id}">
-      <div class="producto-head">
+      <div class="producto-head" style="align-items:flex-start;">
+        <img class="p-foto-preview" src="${toDirectImageUrl(p.fotoUrl)}" onerror="this.style.display='none'" style="width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--stone-200);${p.fotoUrl ? "" : "display:none;"}" />
         <input type="text" class="nombre p-nombre" value="${p.nombre}" />
         <select class="categoria p-categoria">
           ${todasCategorias.map(c => `<option value="${c}" ${c === p.categoria ? "selected" : ""}>${c}</option>`).join("")}
           <option value="__new__">+ Crear nueva categoría…</option>
         </select>
         <button class="icon-btn p-del">✕</button>
+      </div>
+      <div class="grid grid-2" style="margin-bottom:12px;">
+        <label class="field">
+          <span class="lbl">Descripción</span>
+          <span class="hint">detalle corto del producto</span>
+          <div class="field-box"><input type="text" class="p-descripcion" value="${p.descripcion || ""}" /></div>
+        </label>
+        <label class="field">
+          <span class="lbl">Foto (link de Google Drive)</span>
+          <span class="hint">pegá el link para compartir del archivo</span>
+          <div class="field-box"><input type="text" class="p-foto" value="${p.fotoUrl || ""}" placeholder="https://drive.google.com/file/d/..." /></div>
+        </label>
       </div>
       <div class="grid grid-3">
         ${fieldHTML({ label: "Proveedor", type: "text", value: p.proveedor, cls: "p-proveedor" })}
@@ -510,9 +566,18 @@ function renderProductos() {
   wrap.querySelectorAll(".producto-card").forEach(card => {
     const id = card.dataset.id;
     const p = state.productos.find(x => x.id === id);
-    const refresh = () => { saveState(); renderProductos(); renderResumen(); renderSeguimiento(); renderResumenMensual(); };
+    const refresh = () => { saveState(); renderProductos(); renderCatalogo(); renderResumen(); renderSeguimiento(); renderResumenMensual(); };
 
     card.querySelector(".p-nombre").addEventListener("input", e => { p.nombre = e.target.value; refresh(); });
+    card.querySelector(".p-descripcion").addEventListener("input", e => { p.descripcion = e.target.value; saveState(); renderCatalogo(); });
+    card.querySelector(".p-foto").addEventListener("input", e => {
+      p.fotoUrl = e.target.value;
+      const img = card.querySelector(".p-foto-preview");
+      const direct = toDirectImageUrl(p.fotoUrl);
+      if (direct) { img.src = direct; img.style.display = ""; } else { img.style.display = "none"; }
+      saveState();
+      renderCatalogo();
+    });
     card.querySelector(".p-del").addEventListener("click", () => {
       state.productos = state.productos.filter(x => x.id !== id);
       state.seguimiento = state.seguimiento.filter(r => r.productoId !== id);
@@ -548,7 +613,7 @@ function renderProductos() {
   });
 }
 document.getElementById("addProductoBtn").addEventListener("click", () => {
-  state.productos.push({ id: uid(), nombre: "Nuevo producto", categoria: "Otros", proveedor: "", codigoCompra: "", fechaInversion: "",
+  state.productos.push({ id: uid(), nombre: "Nuevo producto", categoria: "Otros", descripcion: "", fotoUrl: "", proveedor: "", codigoCompra: "", fechaInversion: "",
     costo: 0, costoExtra: 0, modo: "monto", gananciaDeseada: 0, margenDeseado: 30, ventasEstimadas: 0, stockInicial: 0 });
   saveState(); renderProductos(); renderSeguimiento();
 });
