@@ -4,6 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Aureliana Complementos — Calculadora</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <style>
   :root {
     --rose: #e11d74; --rose-light: #fdf2f6;
@@ -422,13 +425,19 @@ function getTotales() {
 function renderCatalogo() {
   const wrap = document.getElementById("catalogoWrap");
   const { productosCalc } = getTotales();
+  productosCalc.sort((a, b) => a.categoria.localeCompare(b.categoria) || a.nombre.localeCompare(b.nombre));
   if (productosCalc.length === 0) {
     wrap.innerHTML = `<p style="font-size:13px;color:var(--stone-500);">Todavía no cargaste productos.</p>`;
     return;
   }
-  wrap.innerHTML = productosCalc.map(p => {
+  wrap.innerHTML = productosCalc.map((p, idx) => {
     const img = toDirectImageUrl(p.fotoUrl);
+    const esNuevaCategoria = idx === 0 || productosCalc[idx - 1].categoria !== p.categoria;
+    const headerHTML = esNuevaCategoria
+      ? `<div style="grid-column:1/-1;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--stone-400);margin:${idx === 0 ? "0" : "10px"} 0 -4px;">${p.categoria}</div>`
+      : "";
     return `
+      ${headerHTML}
       <div style="border:1px solid var(--stone-200);border-radius:12px;overflow:hidden;background:white;">
         ${img
           ? `<img src="${img}" onerror="this.replaceWith(Object.assign(document.createElement('div'), {style:'height:110px;display:flex;align-items:center;justify-content:center;background:var(--stone-50);color:var(--stone-400);font-size:11px;',innerText:'sin foto'}))" style="width:100%;height:110px;object-fit:cover;display:block;" />`
@@ -487,25 +496,42 @@ function renderGastos() {
   wrap.querySelectorAll(".row-flex").forEach(row => {
     const id = row.dataset.id;
     row.querySelector(".gasto-nombre").addEventListener("input", e => { state.gastosFijos.find(x => x.id === id).nombre = e.target.value; saveState(); });
-    row.querySelector(".gasto-monto").addEventListener("input", e => { state.gastosFijos.find(x => x.id === id).monto = numOr0(e.target.value); saveState(); renderResumen(); renderProductos(); });
+    row.querySelector(".gasto-monto").addEventListener("input", e => { state.gastosFijos.find(x => x.id === id).monto = numOr0(e.target.value); saveState(); scheduleSecondaryRender(); renderProductos(); });
     row.querySelector(".gasto-del").addEventListener("click", () => { state.gastosFijos = state.gastosFijos.filter(x => x.id !== id); saveState(); renderGastos(); renderResumen(); });
   });
 }
-document.getElementById("sueldoPropio").addEventListener("input", e => { state.sueldoPropio = numOr0(e.target.value); saveState(); renderResumen(); });
-document.getElementById("inversionInicial").addEventListener("input", e => { state.inversionInicial = numOr0(e.target.value); saveState(); renderResumen(); });
+document.getElementById("sueldoPropio").addEventListener("input", e => { state.sueldoPropio = numOr0(e.target.value); saveState(); renderResumen(); scheduleSecondaryRender(); });
+document.getElementById("inversionInicial").addEventListener("input", e => { state.inversionInicial = numOr0(e.target.value); saveState(); renderResumen(); scheduleSecondaryRender(); });
 document.getElementById("addGastoBtn").addEventListener("click", () => {
   state.gastosFijos.push({ id: uid(), nombre: "Otro gasto", monto: 0 });
   saveState(); renderGastos();
 });
 
+let secondaryRenderTimer = null;
+function scheduleSecondaryRender() {
+  if (secondaryRenderTimer) clearTimeout(secondaryRenderTimer);
+  secondaryRenderTimer = setTimeout(() => {
+    renderCatalogo();
+    renderResumen();
+    renderSeguimiento();
+    renderResumenMensual();
+  }, 500);
+}
+
 // ---------- Productos ----------
 function renderProductos() {
   const wrap = document.getElementById("productosWrap");
   const { productosCalc } = getTotales();
+  productosCalc.sort((a, b) => a.categoria.localeCompare(b.categoria) || a.nombre.localeCompare(b.nombre));
 
-  wrap.innerHTML = productosCalc.map(p => {
+  wrap.innerHTML = productosCalc.map((p, idx) => {
     const todasCategorias = [...CATEGORIAS_BASE, ...state.categoriasPersonalizadas.filter(c => !CATEGORIAS_BASE.includes(c))];
+    const esNuevaCategoria = idx === 0 || productosCalc[idx - 1].categoria !== p.categoria;
+    const headerHTML = esNuevaCategoria
+      ? `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--stone-400);margin:${idx === 0 ? "0" : "18px"} 0 8px;">${p.categoria}</div>`
+      : "";
     return `
+    ${headerHTML}
     <div class="producto-card" data-id="${p.id}">
       <div class="producto-head" style="align-items:flex-start;">
         <img class="p-foto-preview" src="${toDirectImageUrl(p.fotoUrl)}" onerror="this.style.display='none'" style="width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--stone-200);${p.fotoUrl ? "" : "display:none;"}" />
@@ -556,9 +582,9 @@ function renderProductos() {
         </div>
       </div>
       <div class="producto-footer">
-        <span>Precio final: <strong>${fmt(p.precioFinal)}</strong></span>
-        ${p.modo === "margen" ? `<span>Ganancia por unidad: <strong>${fmt(p.gananciaUnidad)}</strong></span>` : ""}
-        <span class="ganancia">Ganancia del mes: <strong>${fmt(p.gananciaMensual)}</strong></span>
+        <span>Precio final: <strong class="out-precio">${fmt(p.precioFinal)}</strong></span>
+        <span class="out-gananciaUnidad-wrap" style="${p.modo === "margen" ? "" : "display:none;"}">Ganancia por unidad: <strong class="out-gananciaUnidad">${fmt(p.gananciaUnidad)}</strong></span>
+        <span class="ganancia">Ganancia del mes: <strong class="out-gananciaMensual">${fmt(p.gananciaMensual)}</strong></span>
       </div>
     </div>`;
   }).join("");
@@ -568,8 +594,21 @@ function renderProductos() {
     const p = state.productos.find(x => x.id === id);
     const refresh = () => { saveState(); renderProductos(); renderCatalogo(); renderResumen(); renderSeguimiento(); renderResumenMensual(); };
 
-    card.querySelector(".p-nombre").addEventListener("input", e => { p.nombre = e.target.value; refresh(); });
-    card.querySelector(".p-descripcion").addEventListener("input", e => { p.descripcion = e.target.value; saveState(); renderCatalogo(); });
+    // Actualiza solo los números calculados de ESTA tarjeta, sin tocar los inputs (no pierde el foco)
+    const liveUpdate = () => {
+      saveState();
+      const calc = calcProducto(p);
+      const stockBadge = card.querySelector(".stock-badge");
+      stockBadge.textContent = `${calc.stockActual} unidades${calc.stockActual <= 5 ? " — ¡reponer!" : ""}`;
+      stockBadge.classList.toggle("low", calc.stockActual <= 5);
+      card.querySelector(".out-precio").textContent = fmt(calc.precioFinal);
+      card.querySelector(".out-gananciaUnidad").textContent = fmt(calc.gananciaUnidad);
+      card.querySelector(".out-gananciaMensual").textContent = fmt(calc.gananciaMensual);
+      scheduleSecondaryRender();
+    };
+
+    card.querySelector(".p-nombre").addEventListener("input", e => { p.nombre = e.target.value; saveState(); scheduleSecondaryRender(); });
+    card.querySelector(".p-descripcion").addEventListener("input", e => { p.descripcion = e.target.value; saveState(); scheduleSecondaryRender(); });
     card.querySelector(".p-foto").addEventListener("input", e => {
       p.fotoUrl = e.target.value;
       const img = card.querySelector(".p-foto-preview");
@@ -600,14 +639,14 @@ function renderProductos() {
     card.querySelector(".p-proveedor").addEventListener("input", e => { p.proveedor = e.target.value; saveState(); });
     card.querySelector(".p-codigo").addEventListener("input", e => { p.codigoCompra = e.target.value; saveState(); });
     card.querySelector(".p-fecha").addEventListener("input", e => { p.fechaInversion = e.target.value; saveState(); });
-    card.querySelector(".p-costo").addEventListener("input", e => { p.costo = numOr0(e.target.value); refresh(); });
-    card.querySelector(".p-costoExtra").addEventListener("input", e => { p.costoExtra = numOr0(e.target.value); refresh(); });
-    card.querySelector(".p-ventas").addEventListener("input", e => { p.ventasEstimadas = numOr0(e.target.value); refresh(); });
-    card.querySelector(".p-stock").addEventListener("input", e => { p.stockInicial = numOr0(e.target.value); refresh(); });
+    card.querySelector(".p-costo").addEventListener("input", e => { p.costo = numOr0(e.target.value); liveUpdate(); });
+    card.querySelector(".p-costoExtra").addEventListener("input", e => { p.costoExtra = numOr0(e.target.value); liveUpdate(); });
+    card.querySelector(".p-ventas").addEventListener("input", e => { p.ventasEstimadas = numOr0(e.target.value); liveUpdate(); });
+    card.querySelector(".p-stock").addEventListener("input", e => { p.stockInicial = numOr0(e.target.value); liveUpdate(); });
     const gananciaInput = card.querySelector(".p-ganancia");
-    if (gananciaInput) gananciaInput.addEventListener("input", e => { p.gananciaDeseada = numOr0(e.target.value); refresh(); });
+    if (gananciaInput) gananciaInput.addEventListener("input", e => { p.gananciaDeseada = numOr0(e.target.value); liveUpdate(); });
     const margenInput = card.querySelector(".p-margen");
-    if (margenInput) margenInput.addEventListener("input", e => { p.margenDeseado = numOr0(e.target.value); refresh(); });
+    if (margenInput) margenInput.addEventListener("input", e => { p.margenDeseado = numOr0(e.target.value); liveUpdate(); });
     card.querySelector(".modo-monto").addEventListener("click", () => { p.modo = "monto"; refresh(); });
     card.querySelector(".modo-margen").addEventListener("click", () => { p.modo = "margen"; refresh(); });
   });
@@ -637,7 +676,7 @@ function renderSeguimiento() {
       ${fieldHTML({ label: "Ventas reales", value: r.ventasReales, cls: "s-reales" })}
       <div><span class="lbl">Estimadas</span><span style="display:block;padding:9px 10px;color:var(--stone-500);font-size:13px;">${estimadas}</span></div>
       <div style="display:flex;align-items:center;gap:6px;">
-        <span style="font-size:13px;font-weight:700;color:${diferencia >= 0 ? "var(--emerald)" : "var(--red)"}">
+        <span class="s-diferencia" style="font-size:13px;font-weight:700;color:${diferencia >= 0 ? "var(--emerald)" : "var(--red)"}">
           ${diferencia >= 0 ? "+" : ""}${diferencia}${cumplimiento !== null ? ` (${cumplimiento.toFixed(0)}%)` : ""}
         </span>
         <button class="icon-btn s-del">✕</button>
@@ -649,9 +688,20 @@ function renderSeguimiento() {
     const id = row.dataset.id;
     const r = state.seguimiento.find(x => x.id === id);
     const refresh = () => { saveState(); renderSeguimiento(); renderProductos(); renderResumenMensual(); };
-    row.querySelector(".s-mes").addEventListener("input", e => { r.mes = e.target.value; refresh(); });
+    const liveUpdate = () => {
+      saveState();
+      const producto = state.productos.find(p => p.id === r.productoId);
+      const estimadas = producto ? producto.ventasEstimadas : 0;
+      const diferencia = r.ventasReales - estimadas;
+      const cumplimiento = estimadas > 0 ? (r.ventasReales / estimadas) * 100 : null;
+      const span = row.querySelector(".s-diferencia");
+      span.textContent = `${diferencia >= 0 ? "+" : ""}${diferencia}${cumplimiento !== null ? ` (${cumplimiento.toFixed(0)}%)` : ""}`;
+      span.style.color = diferencia >= 0 ? "var(--emerald)" : "var(--red)";
+      scheduleSecondaryRender();
+    };
+    row.querySelector(".s-mes").addEventListener("input", e => { r.mes = e.target.value; saveState(); });
     row.querySelector(".s-producto").addEventListener("change", e => { r.productoId = e.target.value; refresh(); });
-    row.querySelector(".s-reales").addEventListener("input", e => { r.ventasReales = numOr0(e.target.value); refresh(); });
+    row.querySelector(".s-reales").addEventListener("input", e => { r.ventasReales = numOr0(e.target.value); liveUpdate(); });
     row.querySelector(".s-del").addEventListener("click", () => { state.seguimiento = state.seguimiento.filter(x => x.id !== id); refresh(); });
   });
 }
