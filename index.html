@@ -166,6 +166,7 @@
     <div style="display:flex; align-items:center; gap:10px;">
       <span class="saved-flag" id="savedFlag">Sincronizado</span>
       <button class="btn btn-primary" id="syncNowBtn">↻ Actualizar</button>
+      <button class="btn" id="forceSaveBtn">💾 Guardar ahora</button>
       <button class="btn" id="showCodeBtn">Ver URL</button>
       <button class="btn" id="exportBtn">Exportar</button>
       <button class="btn" id="importBtn">Importar</button>
@@ -297,7 +298,8 @@ const SYNC_ID_KEY = "aureliana-sync-url";
 let syncId = localStorage.getItem(SYNC_ID_KEY) || null;
 
 async function fetchRemote(url) {
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  const bust = `${url.includes("?") ? "&" : "?"}_t=${Date.now()}`;
+  const res = await fetch(url + bust, { headers: { Accept: "application/json" }, cache: "no-store" });
   if (!res.ok) throw new Error("No se pudo leer desde esa URL");
   return await res.json();
 }
@@ -366,7 +368,6 @@ document.getElementById("loginForm").addEventListener("submit", (e) => {
       document.getElementById("app").style.display = "block";
       renderTabs();
       render();
-      syncNow(false);
     } else {
       document.getElementById("syncGate").style.display = "flex";
     }
@@ -396,6 +397,16 @@ document.getElementById("syncSaveBtn").addEventListener("click", async () => {
 });
 
 document.getElementById("syncNowBtn").addEventListener("click", () => syncNow(true));
+document.getElementById("forceSaveBtn").addEventListener("click", async () => {
+  if (!syncId) { alert("Todavía no configuraste la sincronización."); return; }
+  try {
+    await pushRemote(syncId, state);
+    setSavedFlag("Guardado", true);
+    alert("Se subieron los datos que tenías en esta pantalla a la nube.");
+  } catch (e) {
+    alert("No se pudo guardar. Revisá tu conexión e intentá de nuevo.");
+  }
+});
 document.getElementById("showCodeBtn").addEventListener("click", () => {
   if (!syncId) { alert("Todavía no configuraste la sincronización."); return; }
   prompt("Esta es tu URL de sincronización — pasásela a tu socia:", syncId);
@@ -468,21 +479,68 @@ function renderCatalogo() {
     const headerHTML = esNuevaCategoria
       ? `<div style="grid-column:1/-1;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--stone-400);margin:${idx === 0 ? "0" : "10px"} 0 -4px;">${p.categoria}</div>`
       : "";
+    const esMargen = p.modo === "margen";
     return `
       ${headerHTML}
-      <div style="border:1px solid var(--stone-200);border-radius:12px;overflow:hidden;background:white;">
+      <div class="cat-card" data-id="${p.id}" style="border:1px solid var(--stone-200);border-radius:12px;overflow:hidden;background:white;">
         ${img
           ? `<img src="${img}" onerror="this.replaceWith(Object.assign(document.createElement('div'), {style:'height:110px;display:flex;align-items:center;justify-content:center;background:var(--stone-50);color:var(--stone-400);font-size:11px;',innerText:'sin foto'}))" style="width:100%;height:110px;object-fit:cover;display:block;" />`
           : `<div style="height:110px;display:flex;align-items:center;justify-content:center;background:var(--stone-50);color:var(--stone-400);font-size:11px;">sin foto</div>`}
         <div style="padding:8px 10px;">
           <div style="font-size:12px;font-weight:700;color:var(--stone-900);">${p.nombre}</div>
-          <div style="font-size:11px;color:var(--stone-400);margin-bottom:2px;">${p.categoria}</div>
-          ${p.descripcion ? `<div style="font-size:11px;color:var(--stone-500);margin-bottom:4px;">${p.descripcion}</div>` : ""}
-          <div style="font-size:12px;font-weight:700;color:var(--rose);">${fmt(p.precioFinal)}</div>
-          <div style="font-size:11px;color:${p.stockActual <= 5 ? "var(--red)" : "var(--stone-500)"};">${p.stockActual} en stock</div>
+          <div style="font-size:11px;color:var(--stone-400);margin-bottom:4px;">${p.categoria}</div>
+
+          <label style="display:block;margin-bottom:4px;">
+            <span style="font-size:10px;color:var(--stone-400);">${esMargen ? "Margen %" : "Ganancia $"}</span>
+            <div style="display:flex;align-items:center;gap:4px;">
+              <input type="number" class="cat-precio-input" value="${esMargen ? p.margenDeseado : p.gananciaDeseada}" style="width:100%;border:1px solid var(--stone-200);border-radius:6px;padding:4px 6px;font-size:11px;" />
+              ${esMargen ? `<span style="font-size:10px;color:var(--stone-400);">%</span>` : ""}
+            </div>
+          </label>
+          <div class="cat-precio-out" style="font-size:13px;font-weight:800;color:var(--rose);">${fmt(p.precioFinal)}</div>
+
+          <div class="cat-stock-badge" style="font-size:11px;margin:4px 0;color:${p.stockActual <= 5 ? "var(--red)" : "var(--stone-500)"};">${p.stockActual} en stock${p.stockActual <= 5 ? " ¡reponer!" : ""}</div>
+          <div style="display:flex;gap:4px;">
+            <input type="number" min="1" class="cat-descontar-cant" value="1" style="width:36px;border:1px solid var(--stone-200);border-radius:6px;padding:4px;font-size:11px;" />
+            <button type="button" class="cat-descontar-btn" style="flex:1;background:var(--rose);color:white;border:none;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;">− Stock</button>
+          </div>
         </div>
       </div>`;
   }).join("");
+
+  wrap.querySelectorAll(".cat-card").forEach(card => {
+    const id = card.dataset.id;
+    const p = state.productos.find(x => x.id === id);
+    if (!p) return;
+
+    const catLiveUpdate = () => {
+      saveState();
+      const calc = calcProducto(p);
+      card.querySelector(".cat-precio-out").textContent = fmt(calc.precioFinal);
+      const stockEl = card.querySelector(".cat-stock-badge");
+      stockEl.textContent = `${calc.stockActual} en stock${calc.stockActual <= 5 ? " ¡reponer!" : ""}`;
+      stockEl.style.color = calc.stockActual <= 5 ? "var(--red)" : "var(--stone-500)";
+      scheduleSecondaryRender({ skipCatalogo: true });
+    };
+
+    card.querySelector(".cat-precio-input").addEventListener("input", e => {
+      if (p.modo === "margen") p.margenDeseado = numOr0(e.target.value);
+      else p.gananciaDeseada = numOr0(e.target.value);
+      catLiveUpdate();
+    });
+
+    card.querySelector(".cat-descontar-btn").addEventListener("click", () => {
+      const cantInput = card.querySelector(".cat-descontar-cant");
+      const cant = numOr0(cantInput.value);
+      if (cant <= 0) return;
+      const mes = currentMonthLabel();
+      let entry = state.seguimiento.find(r => r.productoId === p.id && r.mes === mes);
+      if (entry) entry.ventasReales += cant;
+      else state.seguimiento.push({ id: uid(), mes, productoId: p.id, ventasReales: cant });
+      cantInput.value = 1;
+      catLiveUpdate();
+    });
+  });
 }
 
 function renderPrintCatalog() {
@@ -586,10 +644,12 @@ document.getElementById("addGastoBtn").addEventListener("click", () => {
 });
 
 let secondaryRenderTimer = null;
-function scheduleSecondaryRender() {
+function scheduleSecondaryRender(opts) {
+  opts = opts || {};
   if (secondaryRenderTimer) clearTimeout(secondaryRenderTimer);
   secondaryRenderTimer = setTimeout(() => {
-    renderCatalogo();
+    if (!opts.skipCatalogo) renderCatalogo();
+    if (!opts.skipProductos) renderProductos();
     renderResumen();
     renderSeguimiento();
     renderResumenMensual();
@@ -705,11 +765,11 @@ function renderProductos() {
       card.querySelector(".out-precio").textContent = fmt(calc.precioFinal);
       card.querySelector(".out-gananciaUnidad").textContent = fmt(calc.gananciaUnidad);
       card.querySelector(".out-gananciaMensual").textContent = fmt(calc.gananciaMensual);
-      scheduleSecondaryRender();
+      scheduleSecondaryRender({ skipProductos: true });
     };
 
-    card.querySelector(".p-nombre").addEventListener("input", e => { p.nombre = e.target.value; saveState(); scheduleSecondaryRender(); });
-    card.querySelector(".p-descripcion").addEventListener("input", e => { p.descripcion = e.target.value; saveState(); scheduleSecondaryRender(); });
+    card.querySelector(".p-nombre").addEventListener("input", e => { p.nombre = e.target.value; saveState(); scheduleSecondaryRender({ skipProductos: true }); });
+    card.querySelector(".p-descripcion").addEventListener("input", e => { p.descripcion = e.target.value; saveState(); scheduleSecondaryRender({ skipProductos: true }); });
     card.querySelector(".p-foto").addEventListener("input", e => {
       p.fotoUrl = e.target.value;
       const img = card.querySelector(".p-foto-preview");
