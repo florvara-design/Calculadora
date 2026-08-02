@@ -1,23 +1,927 @@
-function doGet(e) {
-  var props = PropertiesService.getScriptProperties();
-  var action = e.parameter.action;
-
-  if (action === 'save_chunk') {
-    props.setProperty('chunk_' + e.parameter.index, e.parameter.data);
-    return ContentService.createTextOutput(JSON.stringify({status:"ok"})).setMimeType(ContentService.MimeType.JSON);
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Aureliana Complementos — Calculadora</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<style>
+  :root {
+    --rose: #e11d74; --rose-light: #fdf2f6;
+    --emerald: #059669; --emerald-light: #ecfdf5;
+    --red: #dc2626; --red-light: #fef2f2;
+    --amber: #ca8a04;
+    --stone-900: #1c1917; --stone-700: #44403c; --stone-500: #78716c;
+    --stone-400: #a8a29e; --stone-200: #e7e5e4; --stone-100: #f5f5f4; --stone-50: #fafaf9;
   }
-
-  if (action === 'save_commit') {
-    var total = parseInt(e.parameter.total, 10);
-    var full = '';
-    for (var i = 0; i < total; i++) {
-      full += props.getProperty('chunk_' + i) || '';
-      props.deleteProperty('chunk_' + i);
-    }
-    props.setProperty('calc_data', full);
-    return ContentService.createTextOutput(JSON.stringify({status:"ok"})).setMimeType(ContentService.MimeType.JSON);
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--stone-50); color: var(--stone-900);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 32px 16px 60px; }
+  h1 { font-size: 22px; font-weight: 800; margin: 0 0 4px; }
+  .subtitle { color: var(--stone-500); font-size: 13px; margin: 0; }
+  .top-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .btn { font-size: 12px; color: var(--stone-500); background: white; border: 1px solid var(--stone-200); border-radius: 8px; padding: 7px 12px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { color: var(--rose); }
+  .btn-primary { background: var(--rose); color: white; border: none; font-weight: 600; }
+  .btn-primary:hover { background: #be1361; color: white; }
+  .saved-flag { font-size: 12px; color: var(--emerald); opacity: 0; transition: opacity .3s; }
+  .saved-flag.show { opacity: 1; }
 
-  var data = props.getProperty('calc_data') || '{}';
-  return ContentService.createTextOutput(data).setMimeType(ContentService.MimeType.JSON);
+  .tabs { display: flex; gap: 4px; background: white; border: 1px solid var(--stone-200); border-radius: 12px; padding: 4px; margin-bottom: 20px; overflow-x: auto; }
+  .tab-btn { border: none; background: none; padding: 9px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--stone-500); cursor: pointer; white-space: nowrap; }
+  .tab-btn.active { background: var(--rose); color: white; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .card { background: white; border: 1px solid var(--stone-200); border-radius: 16px; padding: 20px; margin-bottom: 20px; }
+  .card p.hint-top { font-size: 12px; color: var(--stone-400); margin: 0 0 16px; }
+
+  .grid { display: grid; gap: 12px; }
+  .grid-2 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+  .grid-4 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .grid-5 { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+
+  label.field { display: block; }
+  label.field .lbl { display: block; font-size: 13px; font-weight: 600; color: var(--stone-700); }
+  label.field .hint { display: block; font-size: 11px; color: var(--stone-400); margin-bottom: 4px; }
+  .field-box { display: flex; align-items: stretch; border: 1px solid var(--stone-200); border-radius: 8px; background: white; overflow: hidden; }
+  .field-box:focus-within { border-color: var(--rose); box-shadow: 0 0 0 2px var(--rose-light); }
+  .field-box .affix { padding: 0 10px; font-size: 13px; color: var(--stone-400); background: var(--stone-50); display: flex; align-items: center; }
+  .field-box .affix.left { border-right: 1px solid var(--stone-200); }
+  .field-box .affix.right { border-left: 1px solid var(--stone-200); }
+  input[type="number"], input[type="text"], input[type="date"], select {
+    border: none; outline: none; font-size: 13px; padding: 9px 10px; width: 100%; font-family: inherit; color: var(--stone-900); background: white;
+  }
+  select.standalone, input.standalone { border: 1px solid var(--stone-200); border-radius: 8px; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .stat-card { background: white; border: 1px solid var(--stone-200); border-radius: 16px; padding: 16px; }
+  .stat-card .lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--stone-400); }
+  .stat-card .val { font-size: 22px; font-weight: 800; margin: 2px 0; }
+  .stat-card .sub { font-size: 11px; color: var(--stone-400); }
+
+  .banner { border-radius: 16px; padding: 14px 16px; font-size: 14px; font-weight: 500; margin-bottom: 16px; }
+  .banner.ok { background: var(--emerald-light); border: 1px solid #a7f3d0; color: var(--emerald); }
+  .banner.bad { background: var(--red-light); border: 1px solid #fecaca; color: var(--red); }
+
+  .row-flex { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 8px; }
+  .row-flex .field { flex: 1; }
+  .row-flex .monto { width: 140px; }
+  .icon-btn { background: none; border: none; color: var(--stone-400); cursor: pointer; padding: 8px; font-size: 15px; }
+  .icon-btn:hover { color: var(--rose); }
+
+  .add-btn { margin-top: 8px; background: none; border: none; color: var(--rose); font-weight: 600; font-size: 13px; cursor: pointer; padding: 4px 0; }
+  .add-btn:hover { color: #be1361; }
+
+  .producto-card { border: 1px solid var(--stone-200); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .producto-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .producto-head input.nombre { font-weight: 700; font-size: 14px; border: 1px solid var(--stone-200); border-radius: 8px; padding: 8px 10px; flex: 1; }
+  .producto-head select.categoria { font-size: 13px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--stone-200); color: var(--stone-600); }
+
+  .modo-toggle { display: flex; border: 1px solid var(--stone-200); border-radius: 8px; overflow: hidden; margin-top: 4px; }
+  .modo-toggle button { flex: 1; border: none; padding: 9px 6px; font-size: 12px; font-weight: 600; cursor: pointer; background: white; color: var(--stone-500); }
+  .modo-toggle button.active { background: var(--rose); color: white; }
+  .modo-toggle button + button { border-left: 1px solid var(--stone-200); }
+
+  .stock-badge { display: inline-block; margin-top: 5px; padding: 9px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; background: var(--stone-50); color: var(--stone-700); border: 1px solid var(--stone-200); }
+  .stock-badge.low { background: var(--red-light); color: var(--red); border-color: #fecaca; }
+
+  .producto-footer { display: flex; flex-wrap: wrap; gap: 6px 24px; padding-top: 10px; margin-top: 10px; border-top: 1px solid var(--stone-100); font-size: 13px; color: var(--stone-500); }
+  .producto-footer strong { color: var(--stone-900); }
+  .producto-footer .ganancia strong { color: var(--emerald); }
+
+  table.resumen-mensual { width: 100%; font-size: 13px; border-collapse: collapse; }
+  table.resumen-mensual th { text-align: left; color: var(--stone-400); font-weight: 600; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--stone-100); }
+  table.resumen-mensual td { padding: 8px 12px 8px 0; border-bottom: 1px solid var(--stone-50); }
+
+  footer { text-align: center; font-size: 12px; color: var(--stone-400); padding-top: 16px; }
+
+  /* Login / sync gate */
+  .gate-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .gate-screen .box { background: white; border: 1px solid var(--stone-200); border-radius: 16px; padding: 32px; max-width: 380px; width: 100%; }
+  .gate-screen h1 { font-size: 17px; }
+  .gate-screen p { color: var(--stone-500); font-size: 13px; margin: 4px 0 16px; }
+  .gate-screen input { border: 1px solid var(--stone-200); border-radius: 8px; margin-bottom: 6px; }
+  .gate-screen .err { color: var(--red); font-size: 12px; min-height: 16px; margin-bottom: 8px; }
+  .gate-screen button[type="submit"], .gate-screen button#syncSaveBtn { width: 100%; background: var(--rose); color: white; border: none; border-radius: 8px; padding: 10px; font-weight: 700; font-size: 14px; cursor: pointer; }
+  .gate-screen button:hover { background: #be1361; }
+  #app { display: none; }
+
+  /* Catálogo imprimible / exportable a PDF */
+  #printCatalogWrap { display: none; }
+  @media print {
+    body * { visibility: hidden; }
+    #printCatalogWrap, #printCatalogWrap * { visibility: visible; }
+    #printCatalogWrap { display: block !important; position: absolute; top: 0; left: 0; width: 100%; padding: 20px; }
+    .print-item { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loginGate" class="gate-screen">
+  <form class="box" id="loginForm">
+    <h1>Aureliana Complementos</h1>
+    <p>Calculadora de rentabilidad — acceso exclusivo.</p>
+    <label class="field">
+      <span class="lbl">Clave de acceso</span>
+      <input type="password" id="passInput" autofocus />
+    </label>
+    <div class="err" id="loginErr"></div>
+    <button type="submit">Entrar</button>
+  </form>
+</div>
+
+<div id="syncGate" class="gate-screen" style="display:none;">
+  <div class="box">
+    <h1>Configurar sincronización</h1>
+    <p>Esto conecta tu calculadora con la de tu socia, sin cuentas de Claude. Se hace <strong>una sola vez</strong> por dispositivo.</p>
+
+    <p style="font-size:12px;color:var(--stone-500);margin:0 0 10px;">
+      Si todavía no crearon el backend en Google Apps Script, seguí los pasos que te dio Claude en el chat. Si ya lo tenés (o tu socia te pasó la URL), pegala directamente abajo.
+    </p>
+
+    <label class="field" style="margin-top:6px;">
+      <span class="lbl">URL de sincronización (Google Apps Script)</span>
+      <input type="text" id="syncIdInput" placeholder="https://script.google.com/macros/s/XXXXX/exec" />
+    </label>
+    <div class="err" id="syncErr"></div>
+    <button type="button" id="syncSaveBtn">Conectar</button>
+  </div>
+</div>
+
+<div id="app">
+<div class="wrap">
+  <div class="top-row">
+    <div>
+      <h1>Aureliana Complementos — Calculadora de rentabilidad</h1>
+      <p class="subtitle">Sin comisiones ni impuestos. Datos compartidos con tu socia — sin cuentas de Claude.</p>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span class="saved-flag" id="savedFlag">Sincronizado</span>
+      <button class="btn btn-primary" id="syncNowBtn">↻ Actualizar</button>
+      <button class="btn" id="showCodeBtn">Ver URL</button>
+      <button class="btn" id="exportBtn">Exportar</button>
+      <button class="btn" id="importBtn">Importar</button>
+      <input type="file" id="importFile" accept="application/json" style="display:none" />
+      <button class="btn" id="resetBtn">Reiniciar</button>
+    </div>
+  </div>
+
+  <div class="banner ok" style="background:#eef2ff;border-color:#c7d2fe;color:#4338ca;">
+    💡 Los cambios se guardan solos y quedan disponibles para tu socia. Si ella cargó algo nuevo, tocá <strong>"Actualizar"</strong> para traerlo a tu pantalla.
+  </div>
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="tab-panel active" data-panel="gastos">
+    <div class="card">
+      <p class="hint-top">Tu sueldo, inversión inicial y gastos fijos mensuales.</p>
+      <div class="grid grid-2">
+        <label class="field">
+          <span class="lbl">Tu sueldo</span>
+          <span class="hint">lo que querés cobrar vos por mes</span>
+          <div class="field-box"><span class="affix left">$</span><input type="number" min="0" id="sueldoPropio" /></div>
+        </label>
+        <label class="field">
+          <span class="lbl">Inversión inicial</span>
+          <span class="hint">lo que ya invertiste en stock, etc.</span>
+          <div class="field-box"><span class="affix left">$</span><input type="number" min="0" id="inversionInicial" /></div>
+        </label>
+      </div>
+      <div id="gastosWrap" style="margin-top:16px;"></div>
+      <button class="add-btn" id="addGastoBtn">+ Agregar gasto fijo</button>
+    </div>
+  </div>
+
+  <div class="tab-panel" data-panel="productos">
+    <div id="productosWrap"></div>
+    <button class="add-btn" id="addProductoBtn">+ Agregar producto</button>
+  </div>
+
+  <div class="tab-panel" data-panel="catalogo">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:4px;">
+        <p class="hint-top" style="margin:0;">Vista rápida de todos los productos con su foto, para identificarlos de un vistazo.</p>
+        <button class="btn btn-primary" id="exportCatalogBtn">🖨️ Exportar catálogo (PDF)</button>
+      </div>
+      <div id="catalogoWrap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;margin-top:12px;"></div>
+    </div>
+  </div>
+
+  <div id="printCatalogWrap"></div>
+
+  <div class="tab-panel" data-panel="seguimiento">
+    <div class="card">
+      <p class="hint-top">Cargá una fila por producto y por mes con las ventas reales. Se compara contra lo estimado y resta del stock actual.</p>
+      <div id="seguimientoWrap"></div>
+      <button class="add-btn" id="addSeguimientoBtn">+ Agregar registro</button>
+    </div>
+  </div>
+
+  <div class="tab-panel" data-panel="resumenMensual">
+    <div class="card">
+      <p class="hint-top">Se arma solo con lo cargado en "Seguimiento mensual". Los gastos fijos y el sueldo usan siempre el valor actual (no hay histórico de gastos por mes).</p>
+      <div id="resumenMensualWrap"></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" data-panel="resumen">
+    <div id="bannerWrap"></div>
+    <div class="stats" id="statsWrap"></div>
+    <p style="font-size:12px;color:var(--stone-400);">No incluye comisiones de plataforma ni impuestos.</p>
+  </div>
+
+  <footer>Datos sincronizados con tu socia a través de un backend propio en Google Apps Script (de tu cuenta de Google). "Exportar" queda como respaldo manual extra.</footer>
+</div>
+</div>
+
+<script>
+const ACCESS_CODE = "aureliana2026";
+const STORAGE_KEY = "aureliana-calc-v1";
+const uid = () => Math.random().toString(36).slice(2, 9);
+const CATEGORIAS_BASE = ["Collares", "Pulseras", "Aros", "Anillos", "Otros"];
+
+const fmt = (n) => {
+  if (!isFinite(n)) return "—";
+  return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n);
+};
+const numOr0 = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+
+function toDirectImageUrl(url) {
+  if (!url) return "";
+  const m = url.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+  if (m) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000`;
+  const m2 = url.match(/[?&]id=([^&]+)/);
+  if (m2 && url.includes("drive.google.com")) return `https://drive.google.com/thumbnail?id=${m2[1]}&sz=w1000`;
+  return url;
 }
+
+function currentMonthLabel() {
+  const meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const d = new Date();
+  return `${meses[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+const defaultState = {
+  sueldoPropio: 0,
+  inversionInicial: 0,
+  categoriasPersonalizadas: [],
+  gastosFijos: [],
+  productos: [
+    { id: uid(), nombre: "Collar", categoria: "Collares", descripcion: "", fotoUrl: "", proveedor: "", codigoCompra: "", fechaInversion: "",
+      costo: 0, costoExtra: 0, modo: "margen", gananciaDeseada: 0, margenDeseado: 30, ventasEstimadas: 0, stockInicial: 0 }
+  ],
+  seguimiento: []
+};
+
+let state = loadLocalCache();
+function loadLocalCache() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return { ...JSON.parse(JSON.stringify(defaultState)), ...JSON.parse(raw) };
+  } catch (e) {}
+  return JSON.parse(JSON.stringify(defaultState));
+}
+function cacheLocally() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+}
+
+const SYNC_ID_KEY = "aureliana-sync-url";
+let syncId = localStorage.getItem(SYNC_ID_KEY) || null;
+
+async function fetchRemote(url) {
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error("No se pudo leer desde esa URL");
+  return await res.json();
+}
+async function pushRemote(url, data) {
+  const json = JSON.stringify(data);
+  const CHUNK_SIZE = 800; // caracteres crudos por pedazo, antes de codificar
+  const chunks = [];
+  for (let i = 0; i < json.length; i += CHUNK_SIZE) chunks.push(json.slice(i, i + CHUNK_SIZE));
+  if (chunks.length === 0) chunks.push("");
+
+  for (let i = 0; i < chunks.length; i++) {
+    const encoded = encodeURIComponent(chunks[i]);
+    const res = await fetch(`${url}?action=save_chunk&index=${i}&data=${encoded}`, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`No se pudo guardar (parte ${i + 1} de ${chunks.length})`);
+  }
+
+  const commitRes = await fetch(`${url}?action=save_commit&total=${chunks.length}`, { headers: { Accept: "application/json" } });
+  if (!commitRes.ok) throw new Error("No se pudo confirmar el guardado");
+  return await commitRes.json();
+}
+
+function setSavedFlag(text, ok) {
+  const flag = document.getElementById("savedFlag");
+  flag.textContent = text;
+  flag.style.color = ok ? "var(--emerald)" : "var(--red)";
+  flag.classList.add("show");
+  setTimeout(() => flag.classList.remove("show"), 1800);
+}
+
+let saveTimer = null;
+function saveState() {
+  cacheLocally();
+  if (!syncId) return;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      await pushRemote(syncId, state);
+      setSavedFlag("Sincronizado", true);
+    } catch (e) {
+      setSavedFlag("Sin conexión — guardado solo acá", false);
+    }
+  }, 600);
+}
+
+async function syncNow(showAlertOnFail) {
+  if (!syncId) return;
+  try {
+    const remote = await fetchRemote(syncId);
+    state = { ...JSON.parse(JSON.stringify(defaultState)), ...remote };
+    cacheLocally();
+    render();
+    setSavedFlag("Actualizado", true);
+  } catch (e) {
+    setSavedFlag("No se pudo actualizar", false);
+    if (showAlertOnFail) alert("No se pudo traer los datos. Revisá tu conexión o la URL de sincronización.");
+  }
+}
+
+// ---------- Login gate ----------
+document.getElementById("loginForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const val = document.getElementById("passInput").value;
+  if (val === ACCESS_CODE) {
+    document.getElementById("loginGate").style.display = "none";
+    if (syncId) {
+      document.getElementById("app").style.display = "block";
+      renderTabs();
+      render();
+      syncNow(false);
+    } else {
+      document.getElementById("syncGate").style.display = "flex";
+    }
+  } else {
+    document.getElementById("loginErr").textContent = "Clave incorrecta, probá de nuevo.";
+  }
+});
+
+// ---------- Sync gate ----------
+document.getElementById("syncSaveBtn").addEventListener("click", async () => {
+  const val = document.getElementById("syncIdInput").value.trim();
+  const errEl = document.getElementById("syncErr");
+  if (!val) { errEl.textContent = "Pegá el código primero."; return; }
+  try {
+    const remote = await fetchRemote(val);
+    syncId = val;
+    localStorage.setItem(SYNC_ID_KEY, syncId);
+    state = { ...JSON.parse(JSON.stringify(defaultState)), ...remote };
+    cacheLocally();
+    document.getElementById("syncGate").style.display = "none";
+    document.getElementById("app").style.display = "block";
+    renderTabs();
+    render();
+  } catch (e) {
+    errEl.textContent = "No se pudo conectar con esa URL. Revisá que esté bien copiada y que el backend esté implementado.";
+  }
+});
+
+document.getElementById("syncNowBtn").addEventListener("click", () => syncNow(true));
+document.getElementById("showCodeBtn").addEventListener("click", () => {
+  if (!syncId) { alert("Todavía no configuraste la sincronización."); return; }
+  prompt("Esta es tu URL de sincronización — pasásela a tu socia:", syncId);
+});
+
+// ---------- Tabs ----------
+const TABS = [
+  { id: "gastos", label: "Gastos y sueldo" },
+  { id: "productos", label: "Productos" },
+  { id: "catalogo", label: "Catálogo" },
+  { id: "seguimiento", label: "Seguimiento mensual" },
+  { id: "resumenMensual", label: "Resumen mensual" },
+  { id: "resumen", label: "Resumen" },
+];
+function renderTabs() {
+
+  const wrap = document.getElementById("tabs");
+  wrap.innerHTML = TABS.map(t => `<button class="tab-btn" data-tab="${t.id}">${t.label}</button>`).join("");
+  wrap.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+  });
+  setActiveTab("gastos");
+}
+function setActiveTab(id) {
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === id));
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.dataset.panel === id));
+}
+
+// ---------- Cálculos ----------
+function calcProducto(p) {
+  const costoUnitario = p.costo + p.costoExtra;
+  const esMargen = p.modo === "margen";
+  const margenFrac = (p.margenDeseado || 0) / 100;
+  const precioFinal = esMargen
+    ? (margenFrac < 1 ? costoUnitario / (1 - margenFrac) : Infinity)
+    : costoUnitario + p.gananciaDeseada;
+  const gananciaUnidad = esMargen
+    ? (isFinite(precioFinal) ? precioFinal * margenFrac : Infinity)
+    : p.gananciaDeseada;
+  const gananciaMensual = isFinite(gananciaUnidad) ? gananciaUnidad * p.ventasEstimadas : Infinity;
+  const ventasRealesAcum = state.seguimiento.filter(r => r.productoId === p.id).reduce((a, r) => a + r.ventasReales, 0);
+  const stockActual = p.stockInicial - ventasRealesAcum;
+  return { costoUnitario, precioFinal, gananciaUnidad, gananciaMensual, stockActual };
+}
+
+function getTotales() {
+  const productosCalc = state.productos.map(p => ({ ...p, ...calcProducto(p) }));
+  const totalVentasEstimadas = state.productos.reduce((a, p) => a + p.ventasEstimadas, 0);
+  const totalGananciaMensual = productosCalc.reduce((a, p) => a + (isFinite(p.gananciaMensual) ? p.gananciaMensual : 0), 0);
+  const totalGastosFijos = state.sueldoPropio + state.gastosFijos.reduce((a, g) => a + g.monto, 0);
+  const resultadoDelMes = totalGananciaMensual - totalGastosFijos;
+  const gananciaPromedioPorVenta = totalVentasEstimadas > 0 ? totalGananciaMensual / totalVentasEstimadas : 0;
+  const ventasMinimas = gananciaPromedioPorVenta > 0 ? Math.ceil(totalGastosFijos / gananciaPromedioPorVenta) : null;
+  const mesesRecupero = (resultadoDelMes > 0 && state.inversionInicial > 0) ? state.inversionInicial / resultadoDelMes : null;
+  return { productosCalc, totalVentasEstimadas, totalGananciaMensual, totalGastosFijos, resultadoDelMes, ventasMinimas, mesesRecupero };
+}
+
+// ---------- Render principal ----------
+function renderCatalogo() {
+  const wrap = document.getElementById("catalogoWrap");
+  const { productosCalc } = getTotales();
+  productosCalc.sort((a, b) => a.categoria.localeCompare(b.categoria) || a.nombre.localeCompare(b.nombre));
+  if (productosCalc.length === 0) {
+    wrap.innerHTML = `<p style="font-size:13px;color:var(--stone-500);">Todavía no cargaste productos.</p>`;
+    return;
+  }
+  wrap.innerHTML = productosCalc.map((p, idx) => {
+    const img = toDirectImageUrl(p.fotoUrl);
+    const esNuevaCategoria = idx === 0 || productosCalc[idx - 1].categoria !== p.categoria;
+    const headerHTML = esNuevaCategoria
+      ? `<div style="grid-column:1/-1;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--stone-400);margin:${idx === 0 ? "0" : "10px"} 0 -4px;">${p.categoria}</div>`
+      : "";
+    return `
+      ${headerHTML}
+      <div style="border:1px solid var(--stone-200);border-radius:12px;overflow:hidden;background:white;">
+        ${img
+          ? `<img src="${img}" onerror="this.replaceWith(Object.assign(document.createElement('div'), {style:'height:110px;display:flex;align-items:center;justify-content:center;background:var(--stone-50);color:var(--stone-400);font-size:11px;',innerText:'sin foto'}))" style="width:100%;height:110px;object-fit:cover;display:block;" />`
+          : `<div style="height:110px;display:flex;align-items:center;justify-content:center;background:var(--stone-50);color:var(--stone-400);font-size:11px;">sin foto</div>`}
+        <div style="padding:8px 10px;">
+          <div style="font-size:12px;font-weight:700;color:var(--stone-900);">${p.nombre}</div>
+          <div style="font-size:11px;color:var(--stone-400);margin-bottom:2px;">${p.categoria}</div>
+          ${p.descripcion ? `<div style="font-size:11px;color:var(--stone-500);margin-bottom:4px;">${p.descripcion}</div>` : ""}
+          <div style="font-size:12px;font-weight:700;color:var(--rose);">${fmt(p.precioFinal)}</div>
+          <div style="font-size:11px;color:${p.stockActual <= 5 ? "var(--red)" : "var(--stone-500)"};">${p.stockActual} en stock</div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function renderPrintCatalog() {
+  const wrap = document.getElementById("printCatalogWrap");
+  const { productosCalc } = getTotales();
+  productosCalc.sort((a, b) => a.categoria.localeCompare(b.categoria) || a.nombre.localeCompare(b.nombre));
+
+  const fecha = new Date().toLocaleDateString("es-AR");
+  let html = `
+    <div style="text-align:center;margin-bottom:24px;">
+      <h1 style="font-size:22px;margin:0;">Aureliana Complementos</h1>
+      <p style="font-size:12px;color:#78716c;margin:4px 0 0;">Catálogo — ${fecha}</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">`;
+
+  productosCalc.forEach((p, idx) => {
+    const esNuevaCategoria = idx === 0 || productosCalc[idx - 1].categoria !== p.categoria;
+    if (esNuevaCategoria) {
+      html += `<div style="grid-column:1/-1;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:${idx === 0 ? "0" : "12px"};">${p.categoria}</div>`;
+    }
+    const img = toDirectImageUrl(p.fotoUrl);
+    html += `
+      <div class="print-item" style="border:1px solid #ddd;border-radius:8px;overflow:hidden;">
+        ${img ? `<img src="${img}" style="width:100%;height:130px;object-fit:cover;display:block;" />` : `<div style="height:130px;background:#f5f5f4;"></div>`}
+        <div style="padding:8px 10px;">
+          <div style="font-size:13px;font-weight:700;">${p.nombre}</div>
+          ${p.descripcion ? `<div style="font-size:11px;color:#78716c;">${p.descripcion}</div>` : ""}
+          <div style="font-size:14px;font-weight:800;margin-top:4px;">${fmt(p.precioFinal)}</div>
+        </div>
+      </div>`;
+  });
+
+  html += `</div>`;
+  wrap.innerHTML = html;
+}
+
+document.getElementById("exportCatalogBtn").addEventListener("click", () => {
+  renderPrintCatalog();
+  const imgs = document.querySelectorAll("#printCatalogWrap img");
+  const waits = Array.from(imgs).map(img => new Promise(resolve => {
+    if (img.complete) return resolve();
+    img.addEventListener("load", resolve);
+    img.addEventListener("error", resolve);
+    setTimeout(resolve, 3000);
+  }));
+  Promise.all(waits).then(() => window.print());
+});
+
+function render() {
+  document.getElementById("sueldoPropio").value = state.sueldoPropio;
+  document.getElementById("inversionInicial").value = state.inversionInicial;
+  renderGastos();
+  renderProductos();
+  renderCatalogo();
+  renderSeguimiento();
+  renderResumenMensual();
+  renderResumen();
+}
+
+function fieldHTML({ label, hint, prefix, suffix, value, type, cls }) {
+  const inputType = type || "number";
+  const minAttr = inputType === "number" ? `min="0"` : "";
+  const safeValue = value === undefined || value === null ? "" : value;
+  return `
+    <label class="field">
+      <span class="lbl">${label}</span>
+      ${hint ? `<span class="hint">${hint}</span>` : ""}
+      <div class="field-box">
+        ${prefix ? `<span class="affix left">${prefix}</span>` : ""}
+        <input type="${inputType}" ${minAttr} class="${cls}" value="${safeValue}" placeholder="0" />
+        ${suffix ? `<span class="affix right">${suffix}</span>` : ""}
+      </div>
+    </label>`;
+}
+
+// ---------- Gastos ----------
+function renderGastos() {
+  const wrap = document.getElementById("gastosWrap");
+  wrap.innerHTML = state.gastosFijos.map(g => `
+    <div class="row-flex" data-id="${g.id}">
+      <label class="field"><span class="lbl">Gasto</span>
+        <div class="field-box"><input type="text" class="gasto-nombre" value="${g.nombre}" /></div>
+      </label>
+      <label class="field monto"><span class="lbl">Monto</span>
+        <div class="field-box"><span class="affix left">$</span><input type="number" min="0" class="gasto-monto" value="${g.monto}" /></div>
+      </label>
+      <button class="icon-btn gasto-del">✕</button>
+    </div>`).join("");
+  wrap.querySelectorAll(".row-flex").forEach(row => {
+    const id = row.dataset.id;
+    row.querySelector(".gasto-nombre").addEventListener("input", e => { state.gastosFijos.find(x => x.id === id).nombre = e.target.value; saveState(); });
+    row.querySelector(".gasto-monto").addEventListener("input", e => { state.gastosFijos.find(x => x.id === id).monto = numOr0(e.target.value); saveState(); scheduleSecondaryRender(); renderProductos(); });
+    row.querySelector(".gasto-del").addEventListener("click", () => { state.gastosFijos = state.gastosFijos.filter(x => x.id !== id); saveState(); renderGastos(); renderResumen(); });
+  });
+}
+document.getElementById("sueldoPropio").addEventListener("input", e => { state.sueldoPropio = numOr0(e.target.value); saveState(); renderResumen(); scheduleSecondaryRender(); });
+document.getElementById("inversionInicial").addEventListener("input", e => { state.inversionInicial = numOr0(e.target.value); saveState(); renderResumen(); scheduleSecondaryRender(); });
+document.getElementById("addGastoBtn").addEventListener("click", () => {
+  state.gastosFijos.push({ id: uid(), nombre: "Otro gasto", monto: 0 });
+  saveState(); renderGastos();
+});
+
+let secondaryRenderTimer = null;
+function scheduleSecondaryRender() {
+  if (secondaryRenderTimer) clearTimeout(secondaryRenderTimer);
+  secondaryRenderTimer = setTimeout(() => {
+    renderCatalogo();
+    renderResumen();
+    renderSeguimiento();
+    renderResumenMensual();
+  }, 500);
+}
+
+// ---------- Productos ----------
+function renderProductos() {
+  const wrap = document.getElementById("productosWrap");
+  const { productosCalc } = getTotales();
+  productosCalc.sort((a, b) => a.categoria.localeCompare(b.categoria) || a.nombre.localeCompare(b.nombre));
+
+  wrap.innerHTML = productosCalc.map((p, idx) => {
+    const todasCategorias = [...CATEGORIAS_BASE, ...state.categoriasPersonalizadas.filter(c => !CATEGORIAS_BASE.includes(c))];
+    const esNuevaCategoria = idx === 0 || productosCalc[idx - 1].categoria !== p.categoria;
+    const headerHTML = esNuevaCategoria
+      ? `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--stone-400);margin:${idx === 0 ? "0" : "18px"} 0 8px;">${p.categoria}</div>`
+      : "";
+    return `
+    ${headerHTML}
+    <div class="producto-card" data-id="${p.id}">
+      <div class="producto-head" style="align-items:flex-start;">
+        <img class="p-foto-preview" src="${toDirectImageUrl(p.fotoUrl)}" onerror="this.style.display='none'" style="width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--stone-200);${p.fotoUrl ? "" : "display:none;"}" />
+        <input type="text" class="nombre p-nombre" value="${p.nombre}" placeholder="Nombre del producto" />
+        <button class="icon-btn p-del">✕</button>
+      </div>
+      <div class="grid grid-2" style="margin-bottom:12px;">
+        <label class="field">
+          <span class="lbl">Categoría</span>
+          <span class="hint">para agruparlo en Productos y Catálogo</span>
+          <div class="field-box"><select class="categoria p-categoria" style="border:none;">
+            ${todasCategorias.map(c => `<option value="${c}" ${c === p.categoria ? "selected" : ""}>${c}</option>`).join("")}
+            <option value="__new__">+ Crear nueva categoría…</option>
+          </select></div>
+        </label>
+        <label class="field">
+          <span class="lbl">Foto (link de Google Drive)</span>
+          <span class="hint">pegá el link para compartir del archivo</span>
+          <div class="field-box"><input type="text" class="p-foto" value="${p.fotoUrl || ""}" placeholder="https://drive.google.com/file/d/..." /></div>
+        </label>
+      </div>
+      <label class="field" style="margin-bottom:12px;">
+        <span class="lbl">Descripción</span>
+        <span class="hint">detalle corto del producto</span>
+        <div class="field-box"><input type="text" class="p-descripcion" value="${p.descripcion || ""}" /></div>
+      </label>
+      <div class="grid grid-3">
+        ${fieldHTML({ label: "Proveedor", type: "text", value: p.proveedor, cls: "p-proveedor" })}
+        ${fieldHTML({ label: "Código de compra", type: "text", value: p.codigoCompra, cls: "p-codigo" })}
+        ${fieldHTML({ label: "Fecha de inversión", type: "date", value: p.fechaInversion, cls: "p-fecha" })}
+      </div>
+      <div class="grid grid-3" style="margin-top:12px;">
+        ${fieldHTML({ label: "Costo del producto", prefix: "$", value: p.costo, cls: "p-costo" })}
+        ${fieldHTML({ label: "Costo extra / unidad", hint: "packaging, etiquetas", prefix: "$", value: p.costoExtra, cls: "p-costoExtra" })}
+        <div>
+          <span class="lbl">Modo de ganancia</span>
+          <div class="modo-toggle">
+            <button type="button" class="modo-monto ${p.modo !== "margen" ? "active" : ""}">Monto $</button>
+            <button type="button" class="modo-margen ${p.modo === "margen" ? "active" : ""}">Margen %</button>
+          </div>
+        </div>
+      </div>
+      <div class="grid grid-2" style="margin-top:12px;">
+        ${p.modo === "margen"
+          ? fieldHTML({ label: "Margen deseado", suffix: "%", value: p.margenDeseado, cls: "p-margen" })
+          : fieldHTML({ label: "Ganancia que querés", prefix: "$", value: p.gananciaDeseada, cls: "p-ganancia" })}
+      </div>
+      <div class="grid grid-4" style="margin-top:12px;">
+        ${fieldHTML({ label: "Ventas estimadas", hint: "por mes", value: p.ventasEstimadas, cls: "p-ventas" })}
+        ${fieldHTML({ label: "Stock inicial", hint: "unidades compradas", value: p.stockInicial, cls: "p-stock" })}
+        <div>
+          <span class="lbl">Stock actual</span>
+          <div class="stock-badge ${p.stockActual <= 5 ? "low" : ""}">${p.stockActual} unidades${p.stockActual <= 5 ? " — ¡reponer!" : ""}</div>
+        </div>
+        <div>
+          <span class="lbl">Descontar stock</span>
+          <span class="hint">registra una venta rápida</span>
+          <div style="display:flex;gap:6px;">
+            <input type="number" min="1" class="p-descontar-cant" value="1" style="width:56px;border:1px solid var(--stone-200);border-radius:8px;padding:9px 6px;font-size:13px;" />
+            <button type="button" class="p-descontar-btn" style="flex:1;background:var(--rose);color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">− Stock</button>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:16px;border-radius:14px;background:var(--rose-light);border:1px solid #fbcfe3;padding:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;">
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--stone-500);">Cobrá esto por unidad</div>
+          <div class="out-precio" style="font-size:24px;font-weight:800;color:var(--stone-900);">${fmt(p.precioFinal)}</div>
+        </div>
+        <div class="out-gananciaUnidad-wrap" style="${p.modo === "margen" ? "" : "display:none;"}">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--stone-500);">Ganancia por unidad</div>
+          <div class="out-gananciaUnidad" style="font-size:20px;font-weight:800;color:var(--emerald);">${fmt(p.gananciaUnidad)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--stone-500);">Ganancia del mes</div>
+          <div class="out-gananciaMensual" style="font-size:20px;font-weight:800;color:var(--emerald);">${fmt(p.gananciaMensual)}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+
+  wrap.querySelectorAll(".producto-card").forEach(card => {
+    const id = card.dataset.id;
+    const p = state.productos.find(x => x.id === id);
+    const refresh = () => { saveState(); renderProductos(); renderCatalogo(); renderResumen(); renderSeguimiento(); renderResumenMensual(); };
+
+    // Actualiza solo los números calculados de ESTA tarjeta, sin tocar los inputs (no pierde el foco)
+    const liveUpdate = () => {
+      saveState();
+      const calc = calcProducto(p);
+      const stockBadge = card.querySelector(".stock-badge");
+      stockBadge.textContent = `${calc.stockActual} unidades${calc.stockActual <= 5 ? " — ¡reponer!" : ""}`;
+      stockBadge.classList.toggle("low", calc.stockActual <= 5);
+      card.querySelector(".out-precio").textContent = fmt(calc.precioFinal);
+      card.querySelector(".out-gananciaUnidad").textContent = fmt(calc.gananciaUnidad);
+      card.querySelector(".out-gananciaMensual").textContent = fmt(calc.gananciaMensual);
+      scheduleSecondaryRender();
+    };
+
+    card.querySelector(".p-nombre").addEventListener("input", e => { p.nombre = e.target.value; saveState(); scheduleSecondaryRender(); });
+    card.querySelector(".p-descripcion").addEventListener("input", e => { p.descripcion = e.target.value; saveState(); scheduleSecondaryRender(); });
+    card.querySelector(".p-foto").addEventListener("input", e => {
+      p.fotoUrl = e.target.value;
+      const img = card.querySelector(".p-foto-preview");
+      const direct = toDirectImageUrl(p.fotoUrl);
+      if (direct) { img.src = direct; img.style.display = ""; } else { img.style.display = "none"; }
+      saveState();
+      renderCatalogo();
+    });
+    card.querySelector(".p-del").addEventListener("click", () => {
+      state.productos = state.productos.filter(x => x.id !== id);
+      state.seguimiento = state.seguimiento.filter(r => r.productoId !== id);
+      refresh();
+    });
+    card.querySelector(".p-categoria").addEventListener("change", e => {
+      const val = e.target.value;
+      if (val === "__new__") {
+        const nueva = prompt("Nombre de la nueva categoría:");
+        if (nueva && nueva.trim()) {
+          const nombre = nueva.trim();
+          if (!state.categoriasPersonalizadas.includes(nombre)) state.categoriasPersonalizadas.push(nombre);
+          p.categoria = nombre;
+        }
+        refresh();
+      } else {
+        p.categoria = val; refresh();
+      }
+    });
+    card.querySelector(".p-proveedor").addEventListener("input", e => { p.proveedor = e.target.value; saveState(); });
+    card.querySelector(".p-codigo").addEventListener("input", e => { p.codigoCompra = e.target.value; saveState(); });
+    card.querySelector(".p-fecha").addEventListener("input", e => { p.fechaInversion = e.target.value; saveState(); });
+    card.querySelector(".p-costo").addEventListener("input", e => { p.costo = numOr0(e.target.value); liveUpdate(); });
+    card.querySelector(".p-costoExtra").addEventListener("input", e => { p.costoExtra = numOr0(e.target.value); liveUpdate(); });
+    card.querySelector(".p-ventas").addEventListener("input", e => { p.ventasEstimadas = numOr0(e.target.value); liveUpdate(); });
+    card.querySelector(".p-stock").addEventListener("input", e => { p.stockInicial = numOr0(e.target.value); liveUpdate(); });
+    const gananciaInput = card.querySelector(".p-ganancia");
+    if (gananciaInput) gananciaInput.addEventListener("input", e => { p.gananciaDeseada = numOr0(e.target.value); liveUpdate(); });
+    const margenInput = card.querySelector(".p-margen");
+    if (margenInput) margenInput.addEventListener("input", e => { p.margenDeseado = numOr0(e.target.value); liveUpdate(); });
+    card.querySelector(".modo-monto").addEventListener("click", () => { p.modo = "monto"; refresh(); });
+    card.querySelector(".modo-margen").addEventListener("click", () => { p.modo = "margen"; refresh(); });
+    card.querySelector(".p-descontar-btn").addEventListener("click", () => {
+      const cantInput = card.querySelector(".p-descontar-cant");
+      const cant = numOr0(cantInput.value);
+      if (cant <= 0) return;
+      const mes = currentMonthLabel();
+      let entry = state.seguimiento.find(r => r.productoId === p.id && r.mes === mes);
+      if (entry) entry.ventasReales += cant;
+      else state.seguimiento.push({ id: uid(), mes, productoId: p.id, ventasReales: cant });
+      cantInput.value = 1;
+      liveUpdate();
+    });
+  });
+}
+document.getElementById("addProductoBtn").addEventListener("click", () => {
+  state.productos.push({ id: uid(), nombre: "Nuevo producto", categoria: "Otros", descripcion: "", fotoUrl: "", proveedor: "", codigoCompra: "", fechaInversion: "",
+    costo: 0, costoExtra: 0, modo: "monto", gananciaDeseada: 0, margenDeseado: 30, ventasEstimadas: 0, stockInicial: 0 });
+  saveState(); renderProductos(); renderSeguimiento();
+});
+
+// ---------- Seguimiento mensual ----------
+function renderSeguimiento() {
+  const wrap = document.getElementById("seguimientoWrap");
+  wrap.innerHTML = state.seguimiento.map(r => {
+    const producto = state.productos.find(p => p.id === r.productoId);
+    const estimadas = producto ? producto.ventasEstimadas : 0;
+    const diferencia = r.ventasReales - estimadas;
+    const cumplimiento = estimadas > 0 ? (r.ventasReales / estimadas) * 100 : null;
+    return `
+    <div class="grid grid-5" style="align-items:flex-end;border:1px solid var(--stone-100);border-radius:12px;padding:12px;margin-bottom:10px;" data-id="${r.id}">
+      ${fieldHTML({ label: "Mes", type: "text", value: r.mes, cls: "s-mes" })}
+      <label class="field"><span class="lbl">Producto</span>
+        <div class="field-box"><select class="s-producto">
+          ${state.productos.map(p => `<option value="${p.id}" ${p.id === r.productoId ? "selected" : ""}>${p.nombre}</option>`).join("")}
+        </select></div>
+      </label>
+      ${fieldHTML({ label: "Ventas reales", value: r.ventasReales, cls: "s-reales" })}
+      <div><span class="lbl">Estimadas</span><span style="display:block;padding:9px 10px;color:var(--stone-500);font-size:13px;">${estimadas}</span></div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span class="s-diferencia" style="font-size:13px;font-weight:700;color:${diferencia >= 0 ? "var(--emerald)" : "var(--red)"}">
+          ${diferencia >= 0 ? "+" : ""}${diferencia}${cumplimiento !== null ? ` (${cumplimiento.toFixed(0)}%)` : ""}
+        </span>
+        <button class="icon-btn s-del">✕</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  wrap.querySelectorAll("[data-id]").forEach(row => {
+    const id = row.dataset.id;
+    const r = state.seguimiento.find(x => x.id === id);
+    const refresh = () => { saveState(); renderSeguimiento(); renderProductos(); renderResumenMensual(); };
+    const liveUpdate = () => {
+      saveState();
+      const producto = state.productos.find(p => p.id === r.productoId);
+      const estimadas = producto ? producto.ventasEstimadas : 0;
+      const diferencia = r.ventasReales - estimadas;
+      const cumplimiento = estimadas > 0 ? (r.ventasReales / estimadas) * 100 : null;
+      const span = row.querySelector(".s-diferencia");
+      span.textContent = `${diferencia >= 0 ? "+" : ""}${diferencia}${cumplimiento !== null ? ` (${cumplimiento.toFixed(0)}%)` : ""}`;
+      span.style.color = diferencia >= 0 ? "var(--emerald)" : "var(--red)";
+      scheduleSecondaryRender();
+    };
+    row.querySelector(".s-mes").addEventListener("input", e => { r.mes = e.target.value; saveState(); });
+    row.querySelector(".s-producto").addEventListener("change", e => { r.productoId = e.target.value; refresh(); });
+    row.querySelector(".s-reales").addEventListener("input", e => { r.ventasReales = numOr0(e.target.value); liveUpdate(); });
+    row.querySelector(".s-del").addEventListener("click", () => { state.seguimiento = state.seguimiento.filter(x => x.id !== id); refresh(); });
+  });
+}
+document.getElementById("addSeguimientoBtn").addEventListener("click", () => {
+  state.seguimiento.push({ id: uid(), mes: "", productoId: state.productos[0]?.id || "", ventasReales: 0 });
+  saveState(); renderSeguimiento();
+});
+
+// ---------- Resumen mensual ----------
+function renderResumenMensual() {
+  const wrap = document.getElementById("resumenMensualWrap");
+  const { productosCalc, totalGastosFijos, totalVentasEstimadas } = getTotales();
+  const meses = [];
+  state.seguimiento.forEach(r => { if (r.mes && !meses.includes(r.mes)) meses.push(r.mes); });
+
+  if (meses.length === 0) {
+    wrap.innerHTML = `<p style="font-size:13px;color:var(--stone-500);">Todavía no cargaste ventas reales en "Seguimiento mensual". En cuanto cargues la primera fila con un mes, va a aparecer acá.</p>`;
+    return;
+  }
+
+  const filas = meses.map(mes => {
+    const entradas = state.seguimiento.filter(r => r.mes === mes);
+    const ventasReales = entradas.reduce((a, r) => a + r.ventasReales, 0);
+    const gananciaReal = entradas.reduce((a, r) => {
+      const prod = productosCalc.find(p => p.id === r.productoId);
+      const gu = prod && isFinite(prod.gananciaUnidad) ? prod.gananciaUnidad : 0;
+      return a + gu * r.ventasReales;
+    }, 0);
+    const resultado = gananciaReal - totalGastosFijos;
+    const cumplimiento = totalVentasEstimadas > 0 ? (ventasReales / totalVentasEstimadas) * 100 : null;
+    return { mes, ventasReales, gananciaReal, resultado, cumplimiento };
+  });
+
+  wrap.innerHTML = `
+    <table class="resumen-mensual">
+      <thead><tr><th>Mes</th><th>Ventas reales</th><th>vs. estimado</th><th>Ganancia real</th><th>Gastos + sueldo</th><th>Resultado</th></tr></thead>
+      <tbody>
+        ${filas.map(m => `
+          <tr>
+            <td><strong>${m.mes}</strong></td>
+            <td>${m.ventasReales}</td>
+            <td style="color:var(--stone-500);">${m.cumplimiento !== null ? m.cumplimiento.toFixed(0) + "%" : "—"}</td>
+            <td>${fmt(m.gananciaReal)}</td>
+            <td style="color:var(--stone-500);">${fmt(totalGastosFijos)}</td>
+            <td style="font-weight:700;color:${m.resultado >= 0 ? "var(--emerald)" : "var(--red)"}">${fmt(m.resultado)}</td>
+          </tr>`).join("")}
+      </tbody>
+    </table>`;
+}
+
+// ---------- Resumen general ----------
+function renderResumen() {
+  const { totalVentasEstimadas, totalGananciaMensual, totalGastosFijos, resultadoDelMes, ventasMinimas, mesesRecupero } = getTotales();
+  const esRentable = resultadoDelMes > 0;
+
+  document.getElementById("bannerWrap").innerHTML = `
+    <div class="banner ${esRentable ? "ok" : "bad"}">
+      ${esRentable
+        ? `Con ${totalVentasEstimadas} ventas estimadas generás ${fmt(totalGananciaMensual)} de ganancia, suficiente para cubrir ${fmt(totalGastosFijos)} de gastos y sueldo. Te sobran ${fmt(resultadoDelMes)}.`
+        : `Con las ventas estimadas actuales no cubrís tus gastos fijos y sueldo. Te faltarían ${fmt(Math.abs(resultadoDelMes))} por mes.`}
+    </div>`;
+
+  document.getElementById("statsWrap").innerHTML = `
+    <div class="stat-card"><div class="lbl">Ganancia total / mes</div><div class="val" style="color:#e11d74">${fmt(totalGananciaMensual)}</div><div class="sub">${totalVentasEstimadas} ventas estimadas</div></div>
+    <div class="stat-card"><div class="lbl">Gastos fijos + sueldo</div><div class="val" style="color:#57534e">${fmt(totalGastosFijos)}</div><div class="sub">por mes</div></div>
+    <div class="stat-card"><div class="lbl">Ventas mínimas</div><div class="val" style="color:#ca8a04">${ventasMinimas ?? "—"}</div><div class="sub">para no perder</div></div>
+    <div class="stat-card"><div class="lbl">Resultado del mes</div><div class="val" style="color:${esRentable ? "#059669" : "#dc2626"}">${fmt(resultadoDelMes)}</div><div class="sub">${mesesRecupero ? `recuperás la inversión en ${mesesRecupero.toFixed(1)} meses` : "ganancia después de todo"}</div></div>
+  `;
+}
+
+// ---------- Exportar / Importar / Reiniciar ----------
+document.getElementById("exportBtn").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const fecha = new Date().toISOString().slice(0, 10);
+  a.href = url; a.download = `aureliana-calculadora-${fecha}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+document.getElementById("importBtn").addEventListener("click", () => document.getElementById("importFile").click());
+document.getElementById("importFile").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const parsed = JSON.parse(ev.target.result);
+      if (!parsed || !Array.isArray(parsed.productos)) throw new Error("Formato inválido");
+      state = { ...JSON.parse(JSON.stringify(defaultState)), ...parsed };
+      saveState(); render();
+      alert("Datos importados correctamente.");
+    } catch (err) {
+      alert("No se pudo leer el archivo. Verificá que sea un archivo exportado desde esta misma calculadora.");
+    } finally {
+      e.target.value = "";
+    }
+  };
+  reader.readAsText(file);
+});
+document.getElementById("resetBtn").addEventListener("click", () => {
+  if (confirm("¿Borrar todos los datos? Esto también los borra para tu socia, no solo en este dispositivo.")) {
+    state = JSON.parse(JSON.stringify(defaultState));
+    saveState(); render();
+  }
+});
+
+renderTabs();
+</script>
+</body>
+</html>
